@@ -1,4 +1,5 @@
 import { Octokit } from "https://esm.sh/octokit";
+import { scrypt } from "https://esm.sh/@noble/hashes@1.8.0/scrypt";
 
 const octokit = new Octokit({
   auth: localStorage.getItem("token")
@@ -51,6 +52,7 @@ function base64ToBlobUrl(base64Content, contentType) {
   const binary = atob(base64Content)
   const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
   const blob = new Blob([bytes], { type: contentType })
+
   return URL.createObjectURL(blob)
 }
 
@@ -58,6 +60,69 @@ function base64ToText(base64Content) {
   const binary = atob(base64Content)
   const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
   return new TextDecoder().decode(bytes)
+}
+
+async function decryptBinFile(file) {
+  const encrypted = Uint8Array.from(atob(file.data), character => character.charCodeAt(0))
+  if (encrypted.length < 28) {
+    throw new Error(".binファイルのサイズが不正です。")
+  }
+
+  const iv = encrypted.subarray(0, 12)
+  const authTag = encrypted.subarray(12, 28)
+  const encryptedData = encrypted.subarray(28)
+  const password = new TextEncoder().encode("my-super-secret-password")
+  const salt = new TextEncoder().encode("salt")
+  const secretKey = scrypt(password, salt, { N: 16384, r: 8, p: 1, dkLen: 32 })
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    secretKey,
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"]
+  )
+
+  // Node.js stores the authentication tag before the ciphertext. Web Crypto expects it after.
+  const ciphertextWithTag = new Uint8Array(encryptedData.length + authTag.length)
+  ciphertextWithTag.set(encryptedData)
+  ciphertextWithTag.set(authTag, encryptedData.length)
+  const decrypted = new Uint8Array(await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    cryptoKey,
+    ciphertextWithTag
+  ))
+
+  const fileType = detectFileType(decrypted)
+  return {
+    is: true,
+    data: bytesToBase64(decrypted),
+    filePath: file.filePath.replace(/\.bin$/i, fileType.extension),
+  }
+}
+
+function bytesToBase64(bytes) {
+  let binary = ""
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return btoa(binary)
+}
+
+function detectFileType(bytes) {
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return { extension: ".jpg" }
+  }
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return { extension: ".png" }
+  }
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+    return { extension: ".gif" }
+  }
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+    return { extension: ".pdf" }
+  }
+  throw new Error("復号後のファイル形式を判定できません。")
 }
 
 function getFileExtension(filePath) {
@@ -108,61 +173,22 @@ buttom.addEventListener("click", async (el)=>{
     return
   }
 
-  const res = await faileGet(fileName)
+  let res = await faileGet(fileName)
 
   console.log(`読み込み 終了`)
 
   if(res.is){
-    console.log(`成功`)
-    displayFile(res)
+    try {
+      if (getFileExtension(res.filePath) === "bin") {
+        res = await decryptBinFile(res)
+      }
+      console.log(`成功`)
+      displayFile(res)
+    } catch (error) {
+      console.error("復号エラー:", error)
+      document.querySelector("#text").innerText = "ファイルの復号に失敗しました。"
+      document.querySelector("#text").style.display = "block"
+    }
   }
 
 })
-
-// // === 設定情報（実際の情報に置き換えてください） ===
-// const GITHUB_TOKEN = `Bearer ${localStorage.getItem("token")}`; // fine-grained PAT (Contents: Read-only)
-// const OWNER = 'anotugi';
-// const REPO = 'save-data';                  // Privateリポジトリ名
-// const BRANCH = 'main';
-// const FILE_PATH = `${localStorage.getItem("path")}`;          
-
-// console.log("処理の開始")
-// // GitHub REST API のエンドポイント
-// // const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH}?ref=${BRANCH}`;
-// const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH}?ref=${BRANCH}`;
-// console.log({url, GITHUB_TOKEN})
-
-// try {
-//   const response = await fetch(url, {
-//     headers: {
-//       'Authorization': `${GITHUB_TOKEN}`,
-//       // 'raw' を指定することで、Base64ではなく生のバイナリデータとして取得
-//       'Accept': 'application/vnd.github.v3.raw'
-//     }
-//   });
-
-//   if (!response.ok) {const errorJson = await response.json();
-//     console.log('GitHubエラー詳細:', errorJson);
-//   }
-
-//   // // 1. 画像データを Blob（バイナリ大きなオブジェクト）として取得
-//   // const imageBlob = await response.blob();
-
-//   // // 2. ブラウザ内で一時的に参照できる Blob URL を生成
-//   // const objectUrl = URL.createObjectURL(imageBlob);
-
-//   // // 3. <img> タグの src にセットして表示
-//   // const imgElement = document.getElementById('target-image');
-//   // imgElement.src = objectUrl;
-//   // imgElement.style.display = 'block';
-
-  
-//   const text = await response.blob();
-//   console.log(text)
-//   // const textEl = document.getElementById("text")
-//   // textEl.innerText = text
-
-// } catch (error) {
-//   console.error('画像の取得に失敗しました:', error);
-//   alert('画像の取得に失敗しました。トークンやパスを確認してください。');
-// }
