@@ -4,10 +4,10 @@ export function initReader() {
 
   if (isTouchDevice) {
     // タッチデバイス（スマホ・タブレット）用のリスナー登録
-    // setupTouchEvents();
+    setupTouchEvents();
   } else {
     // マウスデバイス（PC）用のリスナー登録
-    setupMouseEvents();
+    // setupMouseEvents();
   }
 }
 
@@ -20,37 +20,138 @@ export function setupTouchEvents() {
   // 【ページ送り】スワイプジェスチャー判定 (touchstart / touchend)
   let touchStartX = 0;
   let touchStartY = 0;
+  
+  let touchPreviousX = 0;
+  let touchPreviousY = 0;
+
+  let oneTapIs = false;
+  let oneTapTime = 0;
+  let moveIs = false;
+
+  let startNode = null;
+  let startOffset = 0;
 
   container.addEventListener('touchstart', (e) => {
+    e.preventDefault()
+
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
-  }, { passive: true });
 
-  container.addEventListener('touchend', (e) => {
-    const touchEndX = e.changedTouches[0].clientX;
-    const touchEndY = e.changedTouches[0].clientY;
+    touchPreviousX = touchStartX;
+    touchPreviousY = touchStartY;
+  
+    // console.log('タップ位置:', { x: e.touches[0].clientX, y: e.touches[0].clientY });
+    const currentPoint = getCaretPoint(e.touches[0].clientX, e.touches[0].clientY);
+    startNode = currentPoint.node;
+    startOffset = currentPoint.offset;
 
-    const deltaX = touchEndX - touchStartX;
-    const deltaY = touchEndY - touchStartY;
-
-    // テキスト選択（長押しドラッグ）とスワイプの誤作動を防ぐため、選択領域がない場合のみ発動
-    if (window.getSelection().toString().length > 0) return;
-
-    // 水平方向のスワイプを優先検知（縦書きの場合、ページ送りは横移動）
-    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
-      if (deltaX < 0) {
-        // 右から左へスワイプ（次ページへスクロール等）
-        nextPage();
-      } else {
-        // 左から右へスワイプ（前ページへ）
-        prevPage();
-      }
+    if((Date.now() - oneTapTime < 300)) {
+      // 2回目のタップ（ダブルタップ）を検知
+      console.log('ダブルタップ検知');
+      // ダブルタップ時の処理をここに記述
+      oneTapIs = false; // フラグをリセット
+      moveIs = true;
     }
-  }, { passive: true });
+    else {
+      oneTapIs = true;
+      moveIs = false;
+    }
+    oneTapTime = Date.now();
+  }, { passive: false });
+
+  container.addEventListener('touchmove', (e) => {
+    e.preventDefault()
+
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - touchPreviousX;
+    // console.log(touch);
+    // console.log(`touchmove event: deltaX=${deltaX}, deltaY=${touch.clientY - touchStartY}`);
+      // console.log(`指の移動を検知: ${Math.sqrt((touch.clientX - touchStartX)**2 + (touch.clientY - touchStartY)**2)}px`);
+
+    if(!moveIs && Math.sqrt((touch.clientX - touchStartX)**2 + (touch.clientY - touchStartY)**2) >= 3){
+      moveIs = true;
+    }
+
+    if(!moveIs && oneTapIs && (Date.now() - oneTapTime > 800)){
+      oneTapIs = false;
+    }
+
+    if(oneTapIs) {
+      // 指の移動量に合わせて横方向へスクロールする
+      container.scrollBy({ left: -deltaX, behavior: 'instant' });
+    }
+    else{
+      const currentPoint = getCaretPoint(touch.clientX, touch.clientY);
+      if (!currentPoint) return;
+
+      const range = new Range();
+
+      // 起点と現在の移動位置の前後関係を判定してセット
+      const position = startNode.compareDocumentPosition(currentPoint.node);
+      
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING || 
+        (startNode === currentPoint.node && startOffset <= currentPoint.offset)) {
+        // 通常方向（上から下・左から右）の選択
+        range.setStart(startNode, startOffset);
+        range.setEnd(currentPoint.node, currentPoint.offset);
+      } else {
+        // 逆方向（下から上・右から左）の選択
+        range.setStart(currentPoint.node, currentPoint.offset);
+        range.setEnd(startNode, startOffset);
+      }
+
+      // 画面上の選択ハイライトを更新
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    touchPreviousX = touch.clientX;
+    touchPreviousY = touch.clientY;
+  }, { passive: false });
+
+  
+  container.addEventListener('touchend', (e) => {
+    e.preventDefault()
+
+    oneTapIs = false
+    moveIs = false;
+  }, { passive: false });
+  // container.addEventListener('touchend', (e) => {
+  //   const touchEndX = e.changedTouches[0].clientX;
+  //   const touchEndY = e.changedTouches[0].clientY;
+
+  //   const deltaX = touchEndX - touchStartX;
+  //   const deltaY = touchEndY - touchStartY;
+
+  //   // テキスト選択（長押しドラッグ）とスワイプの誤作動を防ぐため、選択領域がない場合のみ発動
+  //   if (window.getSelection().toString().length > 0) return;
+
+  //   // 水平方向のスワイプを優先検知（縦書きの場合、ページ送りは横移動）
+  //   if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
+  //     if (deltaX < 0) {
+  //       // 右から左へスワイプ（次ページへスクロール等）
+  //       nextPage();
+  //     } else {
+  //       // 左から右へスワイプ（前ページへ）
+  //       prevPage();
+  //     }
+  //   }
+  // }, { passive: true });
 
   // 【テキストの選択・コピー】
   // スマホは標準の「長押し選択（selectionchange）」を利用するのが最も自然
-  document.addEventListener('selectionchange', handleTextSelection);
+  // document.addEventListener('selectionchange', handleTextSelection);
+}
+
+function getCaretPoint(x, y) {
+  if (document.caretRangeFromPoint) { // Chrome, Safari等
+    const range = document.caretRangeFromPoint(x, y);
+    return range ? { node: range.startContainer, offset: range.startOffset } : null;
+  } else if (document.caretPositionFromPoint) { // Firefox
+    const pos = document.caretPositionFromPoint(x, y);
+    return pos ? { node: pos.offsetNode, offset: pos.offset } : null;
+  }
+  return null;
 }
 
 // --------------------------------------------------
