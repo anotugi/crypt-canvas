@@ -63,19 +63,8 @@ document.getElementById('toggleTheme').addEventListener('click', (e) => {
 
 // 擬似的なサーバーデータの取得関数 (Fetch)
 async function loadTextData() {
-  // 実際の実装では fetch('https://api.example.com/novel') 等で取得します
-  const dummyResponse = {
-    title: "走れメロス",
-    paragraphs: [
-      "メロスは<ruby>激怒<rt>げきど</rt></ruby>した。必ず、かの<ruby>邪智暴虐<rt>じゃちぼうぎゃく</rt></ruby>の王を除かなければならぬと決意した。",
-      "メロスには政治がわからぬ。メロスは、村の牧人である。笛を吹き、羊と遊んで暮して来た。けれども邪悪に対しては、人一倍に敏感であった。",
-      "きょう未明メロスは村を出発し、野を越え山越え、十里はなれたこの<ruby>シラクスの市<rt>しらくすのいち</rt></ruby>にやって来た。メロスには父も母も無い。女房も無い。十六の<ruby>内気<rt>うちき</rt></ruby>な妹と二人生き送って来た。"
-    ]
-  };
-
   
   let res = await Lo.faileGet("test-data/A_is_for_Angel.bin")
-
 
   if(res.is){
     try {
@@ -101,13 +90,7 @@ async function loadTextData() {
     .map(p => `<p>${p}</p>`)
     .join('');
 
-  // // HTMLの生成
-  // docTitle.textContent = dummyResponse.title;
-  // content.innerHTML = dummyResponse.paragraphs
-  //   .map(p => `<p>${p}</p>`)
-  //   .join('');
 }
-
 
 
 document.getElementById('fetchBtn').addEventListener('click', (e) => {

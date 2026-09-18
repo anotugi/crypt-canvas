@@ -5,12 +5,14 @@ const octokit = new Octokit({
   auth: localStorage.getItem("token")
 });
 
+const repositoryInfo = JSON.parse(localStorage.getItem("repositoryInfo"))
+
 
 export async function faileGet(filePath) {
   try {
     const response = await octokit.rest.repos.getContent({
-      owner: "anotugi",
-      repo: "save-data",
+      owner: repositoryInfo.owner,
+      repo: repositoryInfo.repo,
       path: filePath,
     });
 
@@ -26,8 +28,8 @@ export async function faileGet(filePath) {
     }
     else if("content" in response.data && response.data.content == ""){
       const blobResponse = await octokit.rest.git.getBlob({
-        owner: "anotugi",
-        repo: "save-data",
+        owner: repositoryInfo.owner,
+        repo: repositoryInfo.repo,
         file_sha: response.data.sha,
       });
       return {
@@ -72,8 +74,8 @@ export async function decryptBinFile(file) {
   const iv = encrypted.subarray(0, 12)
   const authTag = encrypted.subarray(12, 28)
   const encryptedData = encrypted.subarray(28)
-  const password = new TextEncoder().encode("my-super-secret-password")
-  const salt = new TextEncoder().encode("salt")
+  const password = new TextEncoder().encode(localStorage.getItem("password"))
+  const salt = new TextEncoder().encode(localStorage.getItem("salt"))
   const secretKey = scrypt(password, salt, { N: 16384, r: 8, p: 1, dkLen: 32 })
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
