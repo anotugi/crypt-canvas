@@ -7,10 +7,11 @@ export function initReader() {
     setupTouchEvents();
   } else {
     // マウスデバイス（PC）用のリスナー登録
-    // setupMouseEvents();
+    setupMouseEvents();
   }
 }
 
+const oneScroll = window.innerWidth * 1
 // --------------------------------------------------
 // 1. スマホ・タブレット（タッチ操作）向け処理
 // --------------------------------------------------
@@ -27,6 +28,9 @@ export function setupTouchEvents() {
   let oneTapIs = false;
   let oneTapTime = 0;
   let moveIs = false;
+
+  // マウス初期のX方向のスクロールのタメ
+  let scrolltank = 0;
 
   let startNode = null;
   let startOffset = 0;
@@ -55,6 +59,7 @@ export function setupTouchEvents() {
     else {
       oneTapIs = true;
       moveIs = false;
+      scrolltank = 0;
     }
     oneTapTime = Date.now();
   }, { passive: false });
@@ -68,17 +73,29 @@ export function setupTouchEvents() {
     // console.log(`touchmove event: deltaX=${deltaX}, deltaY=${touch.clientY - touchStartY}`);
       // console.log(`指の移動を検知: ${Math.sqrt((touch.clientX - touchStartX)**2 + (touch.clientY - touchStartY)**2)}px`);
 
-    if(!moveIs && Math.sqrt((touch.clientX - touchStartX)**2 + (touch.clientY - touchStartY)**2) >= 3){
-      moveIs = true;
-    }
+    // console.log(`指の移動量: X=${Math.abs(touch.clientX - touchStartX)}px, Y=${Math.abs(touch.clientY - touchStartY)}px`);
+    // console.log(`is x: ${Math.abs(touch.clientX - touchStartX) > 10}, y: ${Math.abs(touch.clientY - touchStartY) > 20}`)
 
     if(!moveIs && oneTapIs && (Date.now() - oneTapTime > 800)){
       oneTapIs = false;
+      console.log(`文字選択として判定`)
+    }
+
+    if(!moveIs && ( Math.abs(touch.clientX - touchStartX) > 10 || Math.abs(touch.clientY - touchStartY) > 10)){
+      moveIs = true;
+      console.log('指が動いた');
     }
 
     if(oneTapIs) {
       // 指の移動量に合わせて横方向へスクロールする
-      container.scrollBy({ left: -deltaX, behavior: 'instant' });
+
+      if(scrolltank > 10 || scrolltank < -10){
+        container.scrollBy({ left: -deltaX, behavior: 'instant' });
+      }
+      else{
+        scrolltank += deltaX;
+        console.log('まだ、スクロール判定のない範囲の動き');
+      }
     }
     else{
       const currentPoint = getCaretPoint(touch.clientX, touch.clientY);
@@ -115,32 +132,11 @@ export function setupTouchEvents() {
 
     oneTapIs = false
     moveIs = false;
+    scrolltank = 0;
+    touchPreviousX = null;
+    touchPreviousY = null;
+
   }, { passive: false });
-  // container.addEventListener('touchend', (e) => {
-  //   const touchEndX = e.changedTouches[0].clientX;
-  //   const touchEndY = e.changedTouches[0].clientY;
-
-  //   const deltaX = touchEndX - touchStartX;
-  //   const deltaY = touchEndY - touchStartY;
-
-  //   // テキスト選択（長押しドラッグ）とスワイプの誤作動を防ぐため、選択領域がない場合のみ発動
-  //   if (window.getSelection().toString().length > 0) return;
-
-  //   // 水平方向のスワイプを優先検知（縦書きの場合、ページ送りは横移動）
-  //   if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
-  //     if (deltaX < 0) {
-  //       // 右から左へスワイプ（次ページへスクロール等）
-  //       nextPage();
-  //     } else {
-  //       // 左から右へスワイプ（前ページへ）
-  //       prevPage();
-  //     }
-  //   }
-  // }, { passive: true });
-
-  // 【テキストの選択・コピー】
-  // スマホは標準の「長押し選択（selectionchange）」を利用するのが最も自然
-  // document.addEventListener('selectionchange', handleTextSelection);
 }
 
 function getCaretPoint(x, y) {
@@ -163,92 +159,85 @@ export function setupMouseEvents() {
 
   // 【ページ送り】ホイール操作・キーボード・クリック操作
 
-  // スクロールの方向と大きさ
-  let scrollDirection = null;
-  let scrollMagnitude = 0;
+  const lens = 10
+  const times = Array(lens).fill(null); // 過去5回のスクロールイベントのタイムスタンプを保持
+  let nowIndex = 0;
 
-  // scrollMagnitude の減衰率
-  let mgDecayRate = 0.9;
+  let cancelAnimeId = null
+  function smoothScrollTo(element, _targetX) {
+    // console.log(`smoothScrollTo seting id: ${cancelAnimeId}`);
+    const targetX = Math.max(-element.scrollWidth + element.clientWidth, Math.min(_targetX, 0));
+    if (cancelAnimeId !== null) {
+      cancelAnimationFrame(cancelAnimeId);
+      cancelAnimeId = null
+      console.log(`old reset`);
+    }
+    function step() {
+      const currentX = element.scrollLeft;
+      const diff = targetX - currentX;
+      // console.log(`smoothScrollTo diff： ${diff}`);
 
-  let lastScrollTime = 0;
+      cancelAnimationFrame(cancelAnimeId);
+      // 目標地点に十分近づいたら停止
+      if (Math.abs(diff) < 5) {
+        element.scrollLeft = targetX;
+        cancelAnimeId = null;
+        console.log(`finish`);
+        return;
+      }
+
+      // 徐々に目標に近づける (0.1 は減衰率)
+      element.scrollLeft = currentX + diff * 0.1;
+
+      cancelAnimeId = requestAnimationFrame(step);
+    }
+    cancelAnimeId = requestAnimationFrame(step);
+  }
 
   container.addEventListener('wheel', (e) => {
-    e.preventDefault();
+    console.log(`wheel event: deltaY=${e.deltaY}, deltaX=${e.deltaX}, deltaMode=${e.deltaMode}`);
+    // マウスホイールの判定
+    if(e.deltaX == 0 && (e.deltaY == -100 || e.deltaY == 100)){
+      e.preventDefault();
 
-  //   console.log(`wheel event: deltaY=${e.deltaY}, deltaX=${e.deltaX}, deltaMode=${e.deltaMode}`);
-  //   // 縦書きコンテンツでは、縦ホイール（deltaY）を横スクロールに変換する制御が有効
-  //   const nowDirection = e.deltaY > 0 ? 1 : -1;
-  //   const nowTime = Date.now();
+      times[nowIndex] = [Math.sign(e.deltaY), Date.now()];
 
-  //   if (nowTime - lastScrollTime > 500) {
-  //     scrollDirection = nowDirection;
-  //     scrollMagnitude = 5;
-  //   }
-  //   else if (nowDirection === scrollDirection) {
-  //     scrollMagnitude += 2;
-  //   }
-  //   else {
-  //     scrollMagnitude -= 2;
-  //   }
+      const nears = times.filter(t => t && times[nowIndex][0] === t[0] && times[nowIndex][1] - 100 < t[1]);
 
-  //   lastScrollTime = nowTime;
+      console.log(`wheel event:  nears=${nears.length}`);
 
-  //   scrollLoop();
-  // }, { passive: false });
+      // container.scrollBy({ left: -nears[0][0] * nears.length / lens * oneScroll, behavior: 'smooth' });
 
-  // function scrollLoop() {
-  //   if (scrollMagnitude < 0.1) {
-  //     scrollDirection = null;
-  //     scrollMagnitude = 0;
+      smoothScrollTo(container, container.scrollLeft - nears[0][0] * nears.length / lens * oneScroll);
 
-
-  //   }
-  //   console.log(`x: ${scrollDirection * scrollMagnitude} scrollDirection: ${scrollDirection}, scrollMagnitude: ${scrollMagnitude}`);
-  //   const getRect = content.getBoundingClientRect();
-
-  //   console.log(getRect)
-
-  //   // container.scrollBy({ left: scrollDirection * scrollMagnitude * 50, behavior: 'smooth' });
-
-  //   const currentAnimation = container.animate(
-  //     [
-  //       { transform: `translateX(${0}px)` }, // A: 現在地からスタート
-  //       { transform: `translateX(${scrollDirection * scrollMagnitude}px)` }  // B: 新しいスクロール目標位置
-  //     ],
-  //     {
-  //       duration: 2000,     // 常に2秒かけて追従
-  //       easing: 'ease-out',
-  //       // fill: 'forwards'
-  //     }
-  //   );
-
-
-    // document.getElementById('reader').scrollBy({ left: scrollDirection * scrollMagnitude, behavior: 'smooth' });
-    // scrollMagnitude *= mgDecayRate;
-  
-    content.scrollBy({ left: scrollDirection * scrollMagnitude, behavior: 'smooth' });
-
-  })    
-
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowLeft' || e.key === 'PageDown') nextPage();
-    if (e.key === 'ArrowRight' || e.key === 'PageUp') prevPage();
-  });
-
-  // 【テキストのドラッグ＆ドロップ・コピー】
-  // PC用のmouseup/copyイベント制御
-  container.addEventListener('mouseup', () => {
-    handleTextSelection();
-  });
-
-  // ドラッグ＆ドロップによる選択テキストの抽出（必要に応じたカスタムDrag処理）
-  container.addEventListener('dragstart', (e) => {
-    const selectedText = window.getSelection().toString();
-    if (selectedText) {
-      // e.dataTransfer.setData('text/plain', selectedText);
+      nowIndex = (nowIndex + 1) % times.length;
     }
-  });
+    else{
+      console.log(`wheel event:  無効なホイール操作`);
+    }
+
+  })
+
+  console.log()
+
+  // document.addEventListener('keydown', (e) => {
+  //   if (e.key === 'ArrowLeft' || e.key === 'PageDown') nextPage();
+  //   if (e.key === 'ArrowRight' || e.key === 'PageUp') prevPage();
+  // });
+
+  // // 【テキストのドラッグ＆ドロップ・コピー】
+  // // PC用のmouseup/copyイベント制御
+  // container.addEventListener('mouseup', () => {
+  //   handleTextSelection();
+  // });
+
+  // // ドラッグ＆ドロップによる選択テキストの抽出（必要に応じたカスタムDrag処理）
+  // container.addEventListener('dragstart', (e) => {
+  //   const selectedText = window.getSelection().toString();
+  //   if (selectedText) {
+  //     // e.dataTransfer.setData('text/plain', selectedText);
+  //   }
+  // });
 }
 
 // --------------------------------------------------
